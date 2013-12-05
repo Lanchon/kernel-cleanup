@@ -1,0 +1,88 @@
+#!/bin/bash
+# Author: Lanchon
+# Date: 2013-07-11
+# License: GPL v3 or newer
+
+set -e
+set -o pipefail
+
+kvregexp="[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+\-[[:digit:]]+"
+
+echo "Installed kernel versions from dpkg:"
+ikvdpkg=$(dpkg -l linux-* | egrep "^ii " | awk '{print $2}' | egrep "\-(headers|image)\-" | egrep -o "$kvregexp" | sort -V -u)
+echo "$ikvdpkg"
+echo
+
+echo "Installed kernel versions from /boot:"
+ikvboot=$(ls -1 /boot/vmlinuz-* | egrep -o "$kvregexp" | sort -V -u)
+echo "$ikvboot"
+echo
+
+if [ "$ikvdpkg" != "$ikvboot" ]; then
+	echo "Error: kernel version lists differ." >&2
+	exit 1
+fi
+echo "(Check passed: kernel version lists match.)"
+echo
+ikv="$ikvdpkg"
+
+echo "Current kernel version:"
+ckv=$(uname -r | egrep -o "$kvregexp")
+echo "$ckv"
+echo
+
+ckvfound=false
+olderkv=""
+newerkv=""
+for kv in $ikv; do
+	if [ "$kv" == "$ckv" ]; then
+		ckvfound=true
+		olderkv="$newerkv"
+		newerkv=""
+	else
+		newerkv="${newerkv}${kv}"$'\n'
+		#newerkv=$(echo "$newerkv"; echo "$kv")
+	fi
+done
+
+#ickv=$(echo "$ikv" | egrep "$ckv")
+#if [ "$ckv" != "$ickv" ]; then
+if [ "$ckvfound" != true ]; then
+	echo "Error: current kernel version not found in installed list." >&2
+	exit 1
+fi
+echo "(Check passed: current kernel version found in installed list.)"
+echo
+
+if [ "$newerkv" ]; then
+	echo "Warning: not running the newest kernel, only older kernels will be cleaned up."
+else
+	echo "(Check passed: current kernel version is the newest.)"
+fi
+echo
+
+if [ -z "$olderkv" ]; then
+	echo "Nothing to do, no older kernel versions found."
+	exit 0
+fi
+
+echo "Kernel versions to purge:"
+echo "$olderkv"
+
+packages=$(dpkg -l linux-* | egrep "^ii " | awk '{print $2}' | egrep "\-(headers|image)\-" | fgrep "$olderkv" | sort)
+echo "Packages to purge:"
+echo "$packages"
+echo
+
+command=$(echo "$packages" | xargs echo apt-get purge)
+echo "Command to execute:"
+echo "$command"
+echo
+
+if [ $(id -u) != "0" ]; then
+	echo "Abort: root required, please run as root to purge packages." >&2
+	exit 1
+fi
+
+$command
+

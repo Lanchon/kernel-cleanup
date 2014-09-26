@@ -21,6 +21,7 @@ Features:
   * only removes kernel versions older than the currently running kernel
   * dry-runs (no changes made) if executed without root privileges
 
+
 ```
 Usage: kernel-cleanup [-hb] [-c COMMAND]
 Identify and uninstall old kernels.

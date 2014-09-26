@@ -6,6 +6,64 @@
 set -e
 set -o pipefail
 
+### Parse command line
+
+function show_help {
+cat << EOF
+Usage: ${0##*/} [-hb] [-c COMMAND]
+Identify and uninstall old kernels.
+    -h          display this help and exit
+    -b          batch mode (do not check for root user)
+    -c COMMAND  command used to uninstall packages
+                defaults to:
+                    non-batch mode: apt-get purge %P
+                    batch mode:     apt-get -y purge %P
+EOF
+}
+
+command=""
+batch_mode=false
+
+OPTIND=1
+while getopts "hbc:" OPT; do
+    case "$OPT" in
+        h)
+            show_help
+            exit 0
+            ;;
+        b)
+            batch_mode=true
+            ;;
+        c)
+            command="$OPTARG"
+            ;;
+        '?')
+            show_help >&2
+            exit 1
+            ;;
+    esac
+done
+shift "$((OPTIND-1))"
+if [ $# -ne 0 ]; then
+    echo "$0: invalid arguments -- $@" >&2
+    show_help >&2
+    exit 1
+fi
+
+if [ -z "$command" ]; then
+    if [ "$batch_mode" == true ]; then
+        command="apt-get -y purge"
+    else
+        command="apt-get purge"
+    fi
+fi
+
+if [[ "$command" != *%P* ]]; then
+    command="$command %P"
+fi
+
+### Execute command
+
 kvregexp="[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+\-[[:digit:]]+"
 
 echo "Installed kernel versions from dpkg:"
@@ -19,8 +77,8 @@ echo "$ikvboot"
 echo
 
 if [ "$ikvdpkg" != "$ikvboot" ]; then
-	echo "Error: kernel version lists differ." >&2
-	exit 1
+    echo "Error: kernel version lists differ." >&2
+    exit 1
 fi
 echo "(Check passed: kernel version lists match.)"
 echo
@@ -35,54 +93,53 @@ ckvfound=false
 olderkv=""
 newerkv=""
 for kv in $ikv; do
-	if [ "$kv" == "$ckv" ]; then
-		ckvfound=true
-		olderkv="$newerkv"
-		newerkv=""
-	else
-		newerkv="${newerkv}${kv}"$'\n'
-		#newerkv=$(echo "$newerkv"; echo "$kv")
-	fi
+    if [ "$kv" == "$ckv" ]; then
+        ckvfound=true
+        olderkv="$newerkv"
+        newerkv=""
+    else
+        newerkv="${newerkv}${kv}"$'\n'
+        #newerkv=$(echo "$newerkv"; echo "$kv")
+    fi
 done
 
-#ickv=$(echo "$ikv" | egrep "$ckv")
-#if [ "$ckv" != "$ickv" ]; then
 if [ "$ckvfound" != true ]; then
-	echo "Error: current kernel version not found in installed list." >&2
-	exit 1
+    echo "Error: current kernel version not found in installed list." >&2
+    exit 1
 fi
 echo "(Check passed: current kernel version found in installed list.)"
 echo
 
 if [ "$newerkv" ]; then
-	echo "Warning: not running the newest kernel, only older kernels will be cleaned up."
+    echo "Warning: not running the newest kernel, only older kernels will be cleaned up."
 else
-	echo "(Check passed: current kernel version is the newest.)"
+    echo "(Check passed: current kernel version is the newest.)"
 fi
 echo
 
 if [ -z "$olderkv" ]; then
-	echo "Nothing to do, no older kernel versions found."
-	exit 0
+    echo "Nothing to do, no older kernel versions found."
+    exit 0
 fi
 
-echo "Kernel versions to purge:"
+echo "Kernel versions to uninstall:"
 echo "$olderkv"
 
 packages=$(dpkg -l linux-* | egrep "^ii " | awk '{print $2}' | egrep "\-(headers|image)\-" | fgrep "$olderkv" | sort)
-echo "Packages to purge:"
+echo "Packages to uninstall:"
 echo "$packages"
 echo
 
-command=$(echo "$packages" | xargs echo apt-get purge)
+packages_in_one_line=$(xargs echo <<<$packages)
+expanded_command=${command//\%P/$packages_in_one_line}
 echo "Command to execute:"
-echo "$command"
+echo "$expanded_command"
 echo
 
-if [ $(id -u) != "0" ]; then
-	echo "Abort: root required, please run as root to purge packages." >&2
-	exit 1
+if [ "$batch_mode" != true ] && [ $(id -u) != "0" ]; then
+    echo "Abort: root required, please run as root to uninstall packages." >&2
+    exit 1
 fi
 
-$command
+$expanded_command
 

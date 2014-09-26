@@ -20,3 +20,12 @@ Features:
   * only removes kernel versions older than the currently running kernel
   * dry-runs (no changes made) if executed without root privileges
 
+Usage: kernel-cleanup [-hb] [-c COMMAND]
+Identify and uninstall old kernels.
+    -h          display this help and exit
+    -b          batch mode (do not check for root user)
+    -c COMMAND  command used to uninstall packages
+                defaults to:
+                    non-batch mode: apt-get purge %P
+                    batch mode:     apt-get -y purge %P
+
